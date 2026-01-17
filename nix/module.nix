@@ -127,6 +127,11 @@ in {
       startLimitBurst = 20;
       startLimitIntervalSec = 300;
       serviceConfig = {
+        # --- RUN AS USER ---
+        User = "eugene"; # Hardcoded for now, or add a config option
+        Group = "users";
+        # -------------------
+
         Type = "simple";
         # Create a writable directory at /run/asus-dialpad-driver
         RuntimeDirectory = "asus-dialpad-driver";
@@ -147,10 +152,9 @@ in {
               then "wayland"
               else "x11"
             }"
-            "XDG_RUNTIME_DIR=${cfg.runtimeDir}"
-            "DBUS_SESSION_BUS_ADDRESS=unix:path=${cfg.runtimeDir}bus"
+            "XDG_RUNTIME_DIR=/run/user/1000"
             "DISPLAY=${cfg.display}"
-            "LOG=WARNING"
+            "LOG=INFO"
           ]
           ++ lib.optional (!cfg.ignoreWaylandDisplayEnv)
           "WAYLAND_DISPLAY=${cfg.waylandDisplay}";
