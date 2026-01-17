@@ -30,6 +30,7 @@ import xcffib.xkb
 import glob
 import socket
 import json
+import dbus
 
 SOCKET_PATH = "/tmp/dialpad.sock"
 sock = None
