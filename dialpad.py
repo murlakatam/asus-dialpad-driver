@@ -1289,6 +1289,7 @@ def listen_touchpad_events():
                                     log.debug(f"Detected circular motion: {direction}")
 
                                     general_value = None
+                                    general_unit = None
                                     if center_activated and title in app_specific_shortcuts:
                                         sht = app_specific_shortcuts[title]
                                         general_value = get_current_value(sht)
