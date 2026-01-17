@@ -469,6 +469,12 @@ def load_all_config_values():
 
     config_lock.release()
 
+    # --- ADD THIS LOG ---
+    log.info(f"CONFIG LOADED: Touchpad enabled = {enabled}")
+    log.info(f"CONFIG LOADED: Touchpad Disables Dialpad = {touchpad_disables_dialpad}")
+    log.info(f"CONFIG LOADED: Inactivity Time = {disable_due_inactivity_time}")
+    # --------------------
+
     if enabled is not dialpad:
         toggle_top_right_icon(dialpad)
 
@@ -834,9 +840,10 @@ def activate_dialpad():
         if multi_app_mode:
             send_to_socket({"titles": multi_app_mode_titles, "icons": multi_app_mode_icons, "title": None})
 
-def deactivate_dialpad():
+def deactivate_dialpad(reason="Unknown"):
     global dialpad
 
+    log.warning(f"!!! DEACTIVATING DIALPAD. Reason: {reason} !!!")
     # lock
     send_value_to_touchpad_via_i2c("0x61")
     # deactivate
@@ -853,7 +860,7 @@ def deactivate_dialpad():
 def toggle_top_right_icon(current_state_is_enabled):
 
     if current_state_is_enabled:
-        deactivate_dialpad()
+        deactivate_dialpad("Top-Right Icon Toggle")
     else:
         activate_dialpad()
 
@@ -894,7 +901,7 @@ def check_dialpad_automatical_disable_or_idle_due_inactivity():
             last_event_time != 0 and\
             time() > disable_due_inactivity_time + last_event_time:
 
-            deactivate_dialpad()
+            deactivate_dialpad(f"Inactivity Timeout ({disable_due_inactivity_time}s)")
             log.info("DialPad deactivated")
 
         sleep(1)
@@ -1758,7 +1765,7 @@ def cleanup():
         if dialpad:
 
             dialpad = False
-            deactivate_dialpad()
+            deactivate_dialpad("Cleanup/Exit")
             log.info("DialPad deactivated")
 
         # then clean up
