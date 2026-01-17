@@ -693,30 +693,31 @@ def get_active_window_info_gnome_wayland():
     return None, title
 
 def get_active_window_title():
-
+    # 1. Try X11
     if xdg_session_type == "x11" and display:
         binary, title = get_active_window_info_x11()
         if binary or title:
             return binary, title
+
+    # 2. Try Wayland (KDE & GNOME)
     else:
+        # Try KDE
         binary, title = get_active_window_info_kde_wayland()
         if binary or title:
             return binary, title
 
-        binary, title = get_active_window_info_gnome_wayland()
-        if title:
-            return binary, title
-
-        # We are here because we are on Wayland, KDE failed, and GNOME failed.
-        # Instead of crashing, we return a dummy "Default" to keep the dial alive.
-        if gnome_failure_count < 5:
-            log.warning("Active window detection failed (GNOME security?). Using 'Default' profile fallback.")
-        
-        return "unknown_app", "Default"    
-
-    log.error("Unsupported session type or display not connected.")
-
-    return None, None
+        # Try GNOME
+        # We check the failure count to prevent spamming the logs
+        if gnome_failure_count < 1:
+             binary, title = get_active_window_info_gnome_wayland()
+             if title:
+                 return binary, title
+    
+    # --- FINAL FALLBACK ---
+    # If we are here, we couldn't detect the active window (common on GNOME 41+).
+    # We return a dummy app name so the driver continues to function using the 'Default' layout.
+    # We do NOT log an error here to keep the journal clean.
+    return "unknown_app", "Default"
 
 def get_appropriate_app_name_and_shortcuts(window_binary, window_title):
 
