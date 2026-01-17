@@ -32,6 +32,23 @@ import socket
 import json
 import dbus
 
+# --- DIAGNOSTIC LOGGING START ---
+log.info("=== ASUS DIALPAD DIAGNOSTICS ===")
+log.info(f"User ID: {os.getuid()}")
+log.info(f"Env XDG_SESSION_TYPE: {os.environ.get('XDG_SESSION_TYPE', 'UNSET')}")
+log.info(f"Env DISPLAY: {os.environ.get('DISPLAY', 'UNSET')}")
+log.info(f"Env WAYLAND_DISPLAY: {os.environ.get('WAYLAND_DISPLAY', 'UNSET')}")
+log.info(f"Env XDG_RUNTIME_DIR: {os.environ.get('XDG_RUNTIME_DIR', 'UNSET')}")
+log.info(f"Env DBUS_SESSION_BUS_ADDRESS: {os.environ.get('DBUS_SESSION_BUS_ADDRESS', 'UNSET')}")
+log.info(f"QDBUS executable: {QDBUS}")
+
+try:
+    import dbus
+    log.info("Python 'dbus' module imported successfully.")
+except ImportError as e:
+    log.error(f"Failed to import 'dbus': {e}")
+# --- DIAGNOSTIC LOGGING END ---
+
 SOCKET_PATH = "/tmp/dialpad.sock"
 sock = None
 
@@ -644,6 +661,8 @@ def get_active_window_info_x11():
         return None, None
 
 def get_active_window_info_kde_wayland():
+    if not QDBUS:
+        return None, None    
     try:
         win_id = subprocess.check_output([
             QDBUS, 'org.kde.KWin', '/KWin', 'org.kde.KWin.activeWindow'
