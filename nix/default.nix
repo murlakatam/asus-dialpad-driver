@@ -16,6 +16,7 @@
       systemd-python
       python-periphery
       xcffib
+      dbus-python
     ]);
 in
   python311Packages.buildPythonPackage {
