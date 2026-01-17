@@ -148,6 +148,7 @@ in {
               else "x11"
             }"
             "XDG_RUNTIME_DIR=${cfg.runtimeDir}"
+            "DBUS_SESSION_BUS_ADDRESS=unix:path=${cfg.runtimeDir}bus"
             "DISPLAY=${cfg.display}"
             "LOG=WARNING"
           ]

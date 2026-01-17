@@ -572,6 +572,10 @@ def get_window_kde_wayland_title(window_id):
 def get_active_window_kde_wayland_title_using_qdbus():
     global qdbus_failure_count, qdbus_max_failure_count
 
+    # If qdbus isn't installed, return immediately
+    if not QDBUS:
+        return None    
+
     if qdbus_failure_count >= qdbus_max_failure_count:
         return None
 
