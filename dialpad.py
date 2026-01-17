@@ -707,6 +707,13 @@ def get_active_window_title():
         if title:
             return binary, title
 
+        # We are here because we are on Wayland, KDE failed, and GNOME failed.
+        # Instead of crashing, we return a dummy "Default" to keep the dial alive.
+        if gnome_failure_count < 5:
+            log.warning("Active window detection failed (GNOME security?). Using 'Default' profile fallback.")
+        
+        return "unknown_app", "Default"    
+
     log.error("Unsupported session type or display not connected.")
 
     return None, None
