@@ -32,22 +32,6 @@ import socket
 import json
 import dbus
 
-# --- DIAGNOSTIC LOGGING START ---
-log.info("=== ASUS DIALPAD DIAGNOSTICS ===")
-log.info(f"User ID: {os.getuid()}")
-log.info(f"Env XDG_SESSION_TYPE: {os.environ.get('XDG_SESSION_TYPE', 'UNSET')}")
-log.info(f"Env DISPLAY: {os.environ.get('DISPLAY', 'UNSET')}")
-log.info(f"Env WAYLAND_DISPLAY: {os.environ.get('WAYLAND_DISPLAY', 'UNSET')}")
-log.info(f"Env XDG_RUNTIME_DIR: {os.environ.get('XDG_RUNTIME_DIR', 'UNSET')}")
-log.info(f"Env DBUS_SESSION_BUS_ADDRESS: {os.environ.get('DBUS_SESSION_BUS_ADDRESS', 'UNSET')}")
-log.info(f"QDBUS executable: {QDBUS}")
-
-try:
-    import dbus
-    log.info("Python 'dbus' module imported successfully.")
-except ImportError as e:
-    log.error(f"Failed to import 'dbus': {e}")
-# --- DIAGNOSTIC LOGGING END ---
 
 SOCKET_PATH = "/tmp/dialpad.sock"
 sock = None
@@ -80,6 +64,22 @@ logging.basicConfig(
 log = logging.getLogger('asus-dialpad-driver')
 if SYSTEMD_JOURNAL_AVAILABLE:
     log.addHandler(JournalHandler())
+
+# --- DIAGNOSTIC LOGGING START ---
+log.info("=== ASUS DIALPAD DIAGNOSTICS ===")
+log.info(f"User ID: {os.getuid()}")
+log.info(f"Env XDG_SESSION_TYPE: {os.environ.get('XDG_SESSION_TYPE', 'UNSET')}")
+log.info(f"Env DISPLAY: {os.environ.get('DISPLAY', 'UNSET')}")
+log.info(f"Env WAYLAND_DISPLAY: {os.environ.get('WAYLAND_DISPLAY', 'UNSET')}")
+log.info(f"Env XDG_RUNTIME_DIR: {os.environ.get('XDG_RUNTIME_DIR', 'UNSET')}")
+log.info(f"Env DBUS_SESSION_BUS_ADDRESS: {os.environ.get('DBUS_SESSION_BUS_ADDRESS', 'UNSET')}")
+log.info(f"QDBUS executable: {QDBUS}")
+try:
+    import dbus
+    log.info("Python 'dbus' module imported successfully.")
+except ImportError as e:
+    log.error(f"Failed to import 'dbus': {e}")
+# --- DIAGNOSTIC LOGGING END ---
 
 xauth_in_tmp_dir = glob.glob('/tmp/xauth_*')
 if len(xauth_in_tmp_dir) > 0:
