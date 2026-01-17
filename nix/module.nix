@@ -1,7 +1,9 @@
-
-inputs: { config, lib, pkgs, ... }:
-
-let
+inputs: {
+  config,
+  lib,
+  pkgs,
+  ...
+}: let
   cfg = config.services.asus-dialpad-driver;
 
   configFileDir = pkgs.writeTextFile {
@@ -9,7 +11,6 @@ let
     text = lib.generators.toINI {} cfg.config;
     destination = "/dialpad_dev";
   };
-  
 in {
   options.services.asus-dialpad-driver = {
     enable = lib.mkEnableOption "Enable the Asus DialPad Driver service.";
@@ -47,8 +48,7 @@ in {
     ignoreWaylandDisplayEnv = lib.mkOption {
       type = lib.types.bool;
       default = false;
-      description =
-        "If true, WAYLAND_DISPLAY will not be set in the service environment.";
+      description = "If true, WAYLAND_DISPLAY will not be set in the service environment.";
     };
 
     runtimeDir = lib.mkOption {
@@ -57,10 +57,16 @@ in {
       description = "The XDG_RUNTIME_DIR environment variable, specifying the runtime directory.";
     };
 
+    logLevel = lib.mkOption {
+      type = lib.types.enum ["DEBUG" "INFO" "WARNING" "ERROR"];
+      default = "WARNING";
+      description = "The logging level for the driver.";
+    };
+
     config = lib.mkOption {
-      type = with lib.types;
-        let
-          valueType = nullOr (oneOf [
+      type = with lib.types; let
+        valueType =
+          nullOr (oneOf [
             bool
             int
             float
@@ -68,10 +74,12 @@ in {
             path
             (attrsOf valueType)
             (listOf valueType)
-          ]) // {
+          ])
+          // {
             description = "Asus DialPad Driver configuration value";
           };
-        in valueType;
+      in
+        valueType;
       example = {
         main = {
           enabled = false;
@@ -88,7 +96,7 @@ in {
   };
 
   config = lib.mkIf cfg.enable {
-    environment.systemPackages = [ cfg.package ];
+    environment.systemPackages = [cfg.package];
 
     # Ensure the writable directories exists
     systemd.tmpfiles.rules = [
@@ -100,48 +108,59 @@ in {
 
     # Add groups for dialpad
     users.groups = {
-      uinput = { };
-      input = { };
-      i2c = { };
+      uinput = {};
+      dialpad = {};
+      input = {};
+      i2c = {};
     };
 
     # Add root to the necessary groups
-    users.users.root.extraGroups = [ "i2c" "input" "uinput" ];
+    users.users.root.extraGroups = ["i2c" "input" "uinput" "dialpad"];
 
     # Add the udev rule to set permissions for uinput and i2c-dev
     services.udev.extraRules = ''
       # Set uinput device permissions
-      KERNEL=="uinput", GROUP="uinput", MODE="0660"
+      KERNEL=="uinput", SUBSYSTEM=="misc", GROUP="uinput", MODE="0660"
       # Set i2c-dev permissions
-      SUBSYSTEM=="i2c-dev", GROUP="i2c", MODE="0660"
+      KERNEL=="i2c-[0-9]*", SUBSYSTEM=="i2c-dev", GROUP="i2c", MODE="0660"
     '';
 
     # Load specific kernel modules
-    boot.kernelModules = [ "uinput" "i2c-dev" ];
+    boot.kernelModules = ["uinput" "i2c-dev"];
 
     systemd.services.asus-dialpad-driver = {
       description = "Asus DialPad Driver";
-      wantedBy = [ "default.target" ];
-      startLimitBurst=20;
-      startLimitIntervalSec=300;
+      wantedBy = ["default.target"];
+      startLimitBurst = 20;
+      startLimitIntervalSec = 300;
       serviceConfig = {
         Type = "simple";
-        ExecStart = "${cfg.package}/share/asus-dialpad-driver/dialpad.py ${cfg.layout} ${configFileDir}/";
+        # Create a writable directory at /run/asus-dialpad-driver
+        RuntimeDirectory = "asus-dialpad-driver";
+        # We use cp -L to follow the symlink and chmod 644 to ensure it's writable
+        ExecStartPre = "${pkgs.bash}/bin/bash -c 'cp -L ${configFileDir}/dialpad_dev /run/asus-dialpad-driver/dialpad_dev && chmod 644 /run/asus-dialpad-driver/dialpad_dev'";
+        # Point the driver to the writable directory
+        ExecStart = "${cfg.package}/share/asus-dialpad-driver/dialpad.py ${cfg.layout} /run/asus-dialpad-driver/";
         StandardOutput = null;
         StandardError = null;
         Restart = "on-failure";
         RestartSec = 1;
         TimeoutSec = 5;
         WorkingDirectory = "${cfg.package}/share/asus-dialpad-driver";
-        Environment = [
-          "XDG_SESSION_TYPE=${if cfg.wayland then "wayland" else "x11"}"
-          "XDG_RUNTIME_DIR=${cfg.runtimeDir}"
-          "DISPLAY=${cfg.display}"
-          "LOG=WARNING"
-        ] ++ lib.optional (!cfg.ignoreWaylandDisplayEnv)
+        Environment =
+          [
+            "XDG_SESSION_TYPE=${
+              if cfg.wayland
+              then "wayland"
+              else "x11"
+            }"
+            "XDG_RUNTIME_DIR=${cfg.runtimeDir}"
+            "DISPLAY=${cfg.display}"
+            "LOG=${cfg.logLevel}"
+          ]
+          ++ lib.optional (!cfg.ignoreWaylandDisplayEnv)
           "WAYLAND_DISPLAY=${cfg.waylandDisplay}";
       };
     };
-
   };
 }

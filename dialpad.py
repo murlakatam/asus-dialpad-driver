@@ -31,6 +31,7 @@ import glob
 import socket
 import json
 
+
 SOCKET_PATH = "/tmp/dialpad.sock"
 sock = None
 
@@ -571,6 +572,10 @@ def get_window_kde_wayland_title(window_id):
 def get_active_window_kde_wayland_title_using_qdbus():
     global qdbus_failure_count, qdbus_max_failure_count
 
+    # If qdbus isn't installed, return immediately
+    if not QDBUS:
+        return None    
+
     if qdbus_failure_count >= qdbus_max_failure_count:
         return None
 
@@ -639,6 +644,8 @@ def get_active_window_info_x11():
         return None, None
 
 def get_active_window_info_kde_wayland():
+    if not QDBUS:
+        return None, None    
     try:
         win_id = subprocess.check_output([
             QDBUS, 'org.kde.KWin', '/KWin', 'org.kde.KWin.activeWindow'
@@ -669,22 +676,31 @@ def get_active_window_info_gnome_wayland():
     return None, title
 
 def get_active_window_title():
+    try:
+        # 1. Try X11
+        if xdg_session_type == "x11" and display:
+            binary, title = get_active_window_info_x11()
+            if binary or title:
+                return binary, title
 
-    if xdg_session_type == "x11" and display:
-        binary, title = get_active_window_info_x11()
-        if binary or title:
-            return binary, title
-    else:
-        binary, title = get_active_window_info_kde_wayland()
-        if binary or title:
-            return binary, title
+        # 2. Try Wayland (KDE & GNOME)
+        else:
+            # Try KDE
+            binary, title = get_active_window_info_kde_wayland()
+            if binary or title:
+                return binary, title
 
-        binary, title = get_active_window_info_gnome_wayland()
-        if title:
-            return binary, title
-
-    log.error("Unsupported session type or display not connected.")
-
+            # Try GNOME
+            binary, title = get_active_window_info_gnome_wayland()
+            if binary or title:
+                return binary, title
+    
+    except Exception as e:
+        # Catch ANY error during detection so the driver never dies
+        log.debug(f"Window detection error: {e}")
+    
+    # If we reached here, we couldn't find the window.
+    # Return None, None so the caller knows to do nothing.
     return None, None
 
 def get_appropriate_app_name_and_shortcuts(window_binary, window_title):
@@ -1250,6 +1266,7 @@ def listen_touchpad_events():
                                     log.debug(f"Detected circular motion: {direction}")
 
                                     general_value = None
+                                    general_unit = None
                                     if center_activated and title in app_specific_shortcuts:
                                         sht = app_specific_shortcuts[title]
                                         general_value = get_current_value(sht)
@@ -1609,35 +1626,39 @@ def check_window():
         center_activated, title
 
     while not stop_threads:
-        window_binary_local, window_title = get_active_window_title()
-        app_name_local, app_specific_shortcuts = get_appropriate_app_name_and_shortcuts(window_binary, window_title)
-        multi_app_mode_local, multi_app_mode_titles_local, multi_app_mode_icons_local = is_multifunction(app_specific_shortcuts)
+        result = get_active_window_title()
 
-        update = False
+        # result is a tuple of 2 values. if both values are None, detection failed. skip this cycle.
+        if result[0] or result[1]:
+            window_binary_local, window_title = result
+            app_name_local, app_specific_shortcuts = get_appropriate_app_name_and_shortcuts(window_binary, window_title)
+            multi_app_mode_local, multi_app_mode_titles_local, multi_app_mode_icons_local = is_multifunction(app_specific_shortcuts)
 
-        if window_binary_local != window_binary:
-            window_binary = window_binary_local
-            update = True
+            update = False
 
-        if app_name_local != app_name:
-            app_name = app_name_local
-            update = True
+            if window_binary_local != window_binary:
+                window_binary = window_binary_local
+                update = True
 
-        if multi_app_mode_local != multi_app_mode:
-            multi_app_mode = multi_app_mode_local
-            update = True
+            if app_name_local != app_name:
+                app_name = app_name_local
+                update = True
 
-        if multi_app_mode_titles_local != multi_app_mode_titles:
-            multi_app_mode_titles = multi_app_mode_titles_local
-            update = True
+            if multi_app_mode_local != multi_app_mode:
+                multi_app_mode = multi_app_mode_local
+                update = True
 
-        if multi_app_mode_icons_local != multi_app_mode_icons:
-            multi_app_mode_icons = multi_app_mode_icons_local
-            update = True
+            if multi_app_mode_titles_local != multi_app_mode_titles:
+                multi_app_mode_titles = multi_app_mode_titles_local
+                update = True
 
-        if update:
-            send_to_socket({"titles": multi_app_mode_titles, "icons": multi_app_mode_icons, "title": None})
-            center_activated = False
+            if multi_app_mode_icons_local != multi_app_mode_icons:
+                multi_app_mode_icons = multi_app_mode_icons_local
+                update = True
+
+            if update:
+                send_to_socket({"titles": multi_app_mode_titles, "icons": multi_app_mode_icons, "title": None})
+                center_activated = False
 
         sleep(0.5)
 
