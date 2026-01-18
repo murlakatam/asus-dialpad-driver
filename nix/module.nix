@@ -157,6 +157,8 @@ in {
             "XDG_RUNTIME_DIR=${cfg.runtimeDir}"
             "DISPLAY=${cfg.display}"
             "LOG=${cfg.logLevel}"
+            # This tells the driver exactly where to find the session bus
+            "DBUS_SESSION_BUS_ADDRESS=unix:path=${cfg.runtimeDir}/bus"
           ]
           ++ lib.optional (!cfg.ignoreWaylandDisplayEnv)
           "WAYLAND_DISPLAY=${cfg.waylandDisplay}";
