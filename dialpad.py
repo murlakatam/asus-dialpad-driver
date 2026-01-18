@@ -132,6 +132,7 @@ if len(sys.argv) > 1:
     model = sys.argv[1]
 try:
     model_layout = importlib.import_module('layouts.' + model)
+    log.debug(f"Loaded DialPad layout module: layouts.{model}")
 except:
     layouts_dir = "layouts"
     available_layouts = [os.path.splitext(f)[0] for f in os.listdir(layouts_dir) if f.endswith(".py")]
