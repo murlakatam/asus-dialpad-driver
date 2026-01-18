@@ -63,6 +63,12 @@ in {
       description = "The logging level for the driver.";
     };
 
+    sudoUser = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Sets the SUDO_USER environment variable for the driver. Required if running as root to allow gsettings to modify user preferences.";
+    };
+
     config = lib.mkOption {
       type = with lib.types; let
         valueType =
@@ -130,6 +136,16 @@ in {
 
     systemd.services.asus-dialpad-driver = {
       description = "Asus DialPad Driver";
+      #ensures the service has access to necessary binaries and libraries in PATH
+      path = with pkgs; [
+        glib # for gsettings
+        util-linux # for runuser
+        coreutils # for env
+        xorg.setxkbmap # for setxkbmap
+        xorg.xinput # for xinput
+        xorg.xf86inputsynaptics # for synclient
+        qt6.qttools # for qdbus
+      ];
       wantedBy = ["default.target"];
       startLimitBurst = 20;
       startLimitIntervalSec = 300;
@@ -147,7 +163,12 @@ in {
         RestartSec = 1;
         TimeoutSec = 5;
         WorkingDirectory = "${cfg.package}/share/asus-dialpad-driver";
-        Environment =
+        Environment = let
+          # 1. Always include the official GNOME schemas
+          schemaPath = "${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}";
+          # 2. Conditionally include the user's profile share
+          userShare = lib.optionalString (cfg.sudoUser != null) ":/etc/profiles/per-user/${cfg.sudoUser}/share";
+        in
           [
             "XDG_SESSION_TYPE=${
               if cfg.wayland
@@ -157,11 +178,13 @@ in {
             "XDG_RUNTIME_DIR=${cfg.runtimeDir}"
             "DISPLAY=${cfg.display}"
             "LOG=${cfg.logLevel}"
-            # This tells the driver exactly where to find the session bus
+            # Essential for root user to find user session bus
             "DBUS_SESSION_BUS_ADDRESS=unix:path=${cfg.runtimeDir}/bus"
+            # Explicitly set XDG_DATA_DIRS so gsettings can find schemas
+            "XDG_DATA_DIRS=${schemaPath}:/run/current-system/sw/share${userShare}"
           ]
-          ++ lib.optional (!cfg.ignoreWaylandDisplayEnv)
-          "WAYLAND_DISPLAY=${cfg.waylandDisplay}";
+          ++ lib.optional (!cfg.ignoreWaylandDisplayEnv) "WAYLAND_DISPLAY=${cfg.waylandDisplay}"
+          ++ lib.optional (cfg.sudoUser != null) "SUDO_USER=${cfg.sudoUser}";
       };
     };
   };

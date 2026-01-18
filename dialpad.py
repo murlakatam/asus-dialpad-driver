@@ -31,6 +31,7 @@ import glob
 import socket
 import json
 import dbus
+import pwd
 
 
 SOCKET_PATH = "/tmp/dialpad.sock"
@@ -563,7 +564,8 @@ def initialize_virtual_device():
 
 def get_window_kde_wayland_title(window_id):
     try:
-        cmd = [QDBUS, 'org.kde.KWin', f'/org/kde/KWin/Window/{window_id}', 'org.kde.KWin.Window.caption']
+        cmd = run_command_as_user([QDBUS, 'org.kde.KWin', f'/org/kde/KWin/Window/{window_id}', 'org.kde.KWin.Window.caption'])
+        log.debug(f"Executing: {' '.join(cmd)}")
         output = subprocess.check_output(cmd).decode().strip()
         return output
     except Exception as e:
@@ -581,7 +583,8 @@ def get_active_window_kde_wayland_title_using_qdbus():
         return None
 
     try:
-        cmd = [QDBUS, 'org.kde.KWin', '/KWin', 'org.kde.KWin.activeWindow']
+        cmd = run_command_as_user([QDBUS, 'org.kde.KWin', '/KWin', 'org.kde.KWin.activeWindow'])
+        log.debug(f"Executing: {' '.join(cmd)}")
         output = subprocess.check_output(cmd).decode().strip()
         match = re.search(r"(\d+)", output)
         if match:
@@ -652,6 +655,11 @@ def get_active_window_info_x11():
         return None, None
 
 def get_active_window_info_kde_wayland():
+    global kde_failure_count, kde_max_failure_count
+
+    if kde_failure_count >= kde_max_failure_count:
+        return None, None
+
     if not QDBUS:
         return None, None    
     try:
@@ -676,6 +684,7 @@ def get_active_window_info_kde_wayland():
         return binary, title
 
     except Exception as e:
+        kde_failure_count += 1
         log.error("Error retrieving active window info (KDE Wayland): %s", e)
         return None, None
 
@@ -951,6 +960,9 @@ gnome_session_bus = None
 gnome_failure_count = 0
 gnome_max_failure_count = 1
 
+kde_failure_count = 0
+kde_max_failure_count = 1
+
 xinput_failure_count = 0
 xinput_max_failure_count = 1
 
@@ -974,7 +986,7 @@ def qdbusSet(cmd):
         log.debug('Qdbus failed more then: \"%s\" so is not try anymore', qdbus_max_failure_count)
 
 def qdbusSetTouchpadEnabled(value):
-    cmd = [
+    cmd = run_command_as_user([
         QDBUS,
         'org.kde.KWin',
         f'/org/kde/KWin/InputDevice/event{touchpad}',
@@ -982,29 +994,36 @@ def qdbusSetTouchpadEnabled(value):
         'org.kde.KWin.InputDevice',
         'enabled',
         str(bool(value)).lower()
-    ]
+    ])
+    log.debug(f"Executing: {' '.join(cmd)}")
     qdbusSet(cmd)
 
 def gsettingsSet(path, name, value):
     global gsettings_failure_count, gsettings_max_failure_count
 
-    if gsettings_failure_count < gsettings_max_failure_count:
-        try:
-            sudo_user = os.environ.get('SUDO_USER')
-            if sudo_user is not None:
-                cmd = ['runuser', '-u', sudo_user, 'gsettings', 'set', path, name, str(value)]
-            else:
-                cmd = ['gsettings', 'set', path, name, str(value)]
+    if gsettings_failure_count >= gsettings_max_failure_count:
+        # Log this only once when the limit is hit to avoid spamming the log forever
+        if gsettings_failure_count == gsettings_max_failure_count:
+            log.debug(f"GSettings failed more than {gsettings_max_failure_count} times. Stopping updates.")
+            gsettings_failure_count += 1 # Increment once more so we don't log this message again
+        return
 
-            log.debug(cmd)
-            ret = subprocess.call(cmd)
-            if ret != 0:
-                raise subprocess.CalledProcessError(ret, cmd)
-        except Exception as e:
-            log.debug(e, exc_info=True)
-            gsettings_failure_count+=1
-    else:
-        log.debug('Gsettings failed more than: "%s" so is not trying anymore', gsettings_max_failure_count)
+    try:
+        cmd = run_command_as_user(['gsettings', 'set', path, name, str(value)])
+
+        # Log the full, copy-pasteable command string
+        log.debug(f"Executing GSettings: {' '.join(cmd)}")
+
+        # Execute command, suppressing output but capturing the exit code
+        ret = subprocess.call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        if ret != 0:
+            raise subprocess.CalledProcessError(ret, cmd)
+
+    except Exception as e:
+        gsettings_failure_count += 1
+        # exc_info=True gives you the stack trace, which is useful for debugging
+        log.debug(f"GSettings execution failed: {e}", exc_info=True)
 
 def gsettingsSetTouchpadSendEvents(value):
     gsettingsSet('org.gnome.desktop.peripherals.touchpad', 'send-events', 'enabled' if value else 'disabled')
@@ -1025,8 +1044,8 @@ def set_touchpad_prop_send_events(value):
         log.debug('Setting libinput Send Events via xinput failed more than: "%s" times so is not trying anymore', xinput_max_failure_count)
     else:
         try:
-            cmd = ["xinput", "enable" if value else "disable", touchpad_name]
-            log.debug(cmd)
+            cmd = run_command_as_user(["xinput", "enable" if value else "disable", touchpad_name])
+            log.debug(f"Executing: {' '.join(cmd)}")
             subprocess.call(cmd)
             ret = subprocess.call(cmd)
             if ret != 0:
@@ -1040,8 +1059,8 @@ def set_touchpad_prop_send_events(value):
     if synclient_status_failure_count > synclient_status_max_failure_count:
         log.debug('Setting libinput Send Events via synclient failed more than: "%s" times so is not trying anymore', xinput_max_failure_count)
     try:
-        cmd = ["synclient", "TouchpadOff=" + str(value)]
-        log.debug(cmd)
+        cmd = run_command_as_user(["synclient", "TouchpadOff=" + str(value)])
+        log.debug(f"Executing: {' '.join(cmd)}")
         subprocess.call(cmd)
         ret = subprocess.call(cmd)
         if ret != 0:
@@ -1393,20 +1412,97 @@ def check_config_values_changes():
 
     log.info("check_config_values_changes: inotify watching config file ended")
 
+def run_command_as_user(cmd_list):
+    """
+    Wraps a command with setpriv to silently switch to the target user
+    without triggering PAM log spam.
+    """
+    sudo_user = os.environ.get('SUDO_USER')
+    
+    if sudo_user:
+        try:
+            # 1. Resolve User Details
+            user_info = pwd.getpwnam(sudo_user)
+            uid = str(user_info.pw_uid)
+            gid = str(user_info.pw_gid)
+            home = user_info.pw_dir
+
+            # 2. Construct setpriv command
+            # --reuid/regid: Switch User/Group
+            # --init-groups: Load the user's supplementary groups
+            # --inh-caps=-all: Drop capabilities (safety)
+            prefix = ['setpriv', '--reuid', uid, '--regid', gid, '--init-groups', '--inh-caps=-all', '--']
+
+            # 3. Build the Environment
+            # We use 'env' to inject variables. We do NOT use --reset-env on setpriv
+            # because we want to keep the PATH set by module.nix
+            env_cmd = ['env']
+
+            # Map of variables to pass or overwrite
+            vars_to_pass = {
+                'DBUS_SESSION_BUS_ADDRESS': os.environ.get('DBUS_SESSION_BUS_ADDRESS'),
+                'DISPLAY': os.environ.get('DISPLAY'),
+                'XDG_RUNTIME_DIR': os.environ.get('XDG_RUNTIME_DIR'),
+                'WAYLAND_DISPLAY': os.environ.get('WAYLAND_DISPLAY'),
+                'XDG_DATA_DIRS': os.environ.get('XDG_DATA_DIRS'),
+                # CRITICAL: Overwrite HOME and USER so tools know who they are
+                'HOME': home,
+                'USER': sudo_user,
+                'LOGNAME': sudo_user
+            }
+
+            for k, v in vars_to_pass.items():
+                if v:
+                    env_cmd.append(f'{k}={v}')
+
+            return prefix + env_cmd + cmd_list
+
+        except KeyError:
+            log.debug(f"User {sudo_user} not found. Running as is (unsafe).")
+            return cmd_list
+        except Exception as e:
+            log.error(f"Failed to prepare user switch: {e}")
+            return cmd_list
+
+    return cmd_list
+
 
 def gsettingsGet(path, name):
     global gsettings_failure_count, gsettings_max_failure_count
 
-    if gsettings_failure_count < gsettings_max_failure_count:
-        try:
-            cmd = ['gsettings', 'get', path, name]
-            result = subprocess.check_output(cmd).rstrip()
-            return result
-        except Exception as e:
-            log.debug(e, exc_info=True)
-            gsettings_failure_count+=1
-    else:
-        log.debug('Gsettings failed more then: \"%s\" so is not try anymore', gsettings_max_failure_count)
+    if gsettings_failure_count >= gsettings_max_failure_count:
+        return None
+
+    try:
+        cmd = run_command_as_user(['gsettings', 'get', path, name])
+
+        # REMOVED text=True. Now stdout and stderr are strictly BYTES.
+        proc = subprocess.run(cmd, capture_output=True)
+
+        if proc.returncode != 0:
+            log.exception(f"GSettings failed for {name}. Exit code: {proc.returncode}")
+            # We decode stderr here ONLY for the log message so it is readable
+            err_msg = proc.stderr.decode('utf-8', errors='replace').strip()
+            log.exception(f"STDERR: {err_msg}")
+            raise subprocess.CalledProcessError(proc.returncode, cmd)
+
+        # result is bytes (e.g., b"'[('x11', 'us')]'")
+        result = proc.stdout.strip()
+
+        # --- REGEX CLEANUP ---
+        # 1. Remove GVariant type annotation (e.g., b"@a(ss) []" -> b"[]")
+        result = re.sub(b"^@\S+\s+", b"", result)
+
+        # 2. Remove surrounding single quotes (e.g., b"'value'" -> b"value")
+        result = re.sub(b"^'|'$", b"", result)
+        # ---------------------
+            
+        return result # Returns bytes
+
+    except Exception as e:
+        gsettings_failure_count += 1
+        log.exception(f"GSettings Get failed for {path} {name}: {e}")
+        return None
 
 udev = None
 threads = []
@@ -1729,13 +1825,15 @@ def check_gnome_layout():
         mru_sources = gsettingsGet('org.gnome.desktop.input-sources', 'mru-sources')
         try:
           mru_sources_evaluated = ast.literal_eval(mru_sources.decode())
-        except:
+        except Exception as e:
+          log.exception(f"Decoding input mru sources failed {e}")
           mru_sources_evaluated = []
 
         sources = gsettingsGet('org.gnome.desktop.input-sources', 'sources')
         try:
           sources_evaluated = ast.literal_eval(sources.decode())
-        except:
+        except Exception as e:
+          log.exception(f"Decoding input sources failed {e}")
           sources_evaluated = []
 
         if len(mru_sources_evaluated) > 0:
@@ -1753,24 +1851,22 @@ def check_gnome_layout():
             elif gnome_current_layout != mru_layout:
 
                     try:
-                        cmd = ['setxkbmap', mru_layout, '-display', display_var]
-
-                        log.debug(cmd)
+                        cmd = run_command_as_user(['setxkbmap', mru_layout, '-display', display_var])
                         subprocess.call(cmd)
 
                         gnome_current_layout = mru_layout
                         gnome_current_layout_index =  mru_layout_index
-                    except:
-                        log.exception('setxkbmap set failed')
+                    except Exception as e:
+                        log.exception(f'setxkbmap set failed: {e}')
 
         else:
 
             current = gsettingsGet('org.gnome.desktop.input-sources', 'current')
-
             current_evaluated = None
             try:
               current_evaluated = ast.literal_eval(current.decode().split(" ")[1])
-            except:
+            except Exception as e:
+              log.exception(f"Decoding current failed {e}")
               pass
 
             if current_evaluated is not None and current_evaluated < len(sources_evaluated):
@@ -1783,14 +1879,12 @@ def check_gnome_layout():
                 elif gnome_current_layout != layout:
 
                     try:
-                        cmd = ['setxkbmap', layout, '-display', display_var]
-
-                        log.debug(cmd)
+                        cmd = run_command_as_user(['setxkbmap', layout, '-display', display_var])
                         subprocess.call(cmd)
 
                         gnome_current_layout = layout
-                    except:
-                        log.exception('setxkbmap set failed')
+                    except Exception as e:
+                        log.exception(f'setxkbmap set failed: {e}')
 
         sleep(0.5)
 
