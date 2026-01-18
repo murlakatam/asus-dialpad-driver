@@ -593,16 +593,23 @@ def get_active_window_kde_wayland_title_using_qdbus():
         return None
 
 def get_active_window_gnome_wayland_title():
-    global gnome_failure_count, gnome_max_failure_count
+    global gnome_failure_count, gnome_max_failure_count, gnome_session_bus
 
     if gnome_failure_count >= gnome_max_failure_count:
         return None
 
+    if gnome_session_bus is None:
+        try:
+            gnome_session_bus = dbus.SessionBus()
+        except Exception:
+            gnome_failure_count += 1
+            return None
+
     try:
-        session_bus = dbus.SessionBus()
-        shell = session_bus.get_object('org.gnome.Shell', '/org/gnome/Shell')
+        shell = gnome_session_bus.get_object('org.gnome.Shell', '/org/gnome/Shell')
         active_window = shell.Get('org.gnome.Shell', 'focusWindow')
         return active_window.get('title', None)
+
     except Exception as e:
         gnome_failure_count += 1
         log.error("GNOME window title fetch failed (%d/%d): %s", gnome_failure_count, gnome_max_failure_count, e)
@@ -673,6 +680,55 @@ def get_active_window_info_kde_wayland():
         return None, None
 
 def get_active_window_info_gnome_wayland():
+    global gnome_session_bus, gnome_failure_count, gnome_max_failure_count
+
+    # 1. STOP if we have failed too many times
+    # This prevents log spam and CPU waste if GNOME is broken/incompatible
+    if gnome_failure_count >= gnome_max_failure_count:
+        return None, None
+
+    # 2. Initialize DBus connection (Lazy Loading)
+    if gnome_session_bus is None:
+        try:
+            gnome_session_bus = dbus.SessionBus()
+        except Exception as e:
+            gnome_failure_count += 1
+            log.error(f"Failed to connect to DBus: {e}")
+            return None, None
+
+    # 3. Try the "Window Calls" Extension
+    try:
+        # Check if extension exists (does not count as failure if missing)
+        if gnome_session_bus.name_has_owner("org.gnome.Shell.Extensions.Windows"):
+            try:
+                obj = gnome_session_bus.get_object("org.gnome.Shell.Extensions.Windows", "/org/gnome/Shell/Extensions/Windows")
+                interface = dbus.Interface(obj, "org.gnome.Shell.Extensions.Windows")
+                
+                # Get the list of windows
+                windows_json = interface.List()
+                
+                if windows_json:
+                    windows_list = json.loads(windows_json)
+                    for window in windows_list:
+                        # Find the focused window
+                        if window.get("focus") is True:
+                            binary = window.get("wm_class", "").lower()
+                            title = window.get("title", "").lower()
+                            
+                            if binary or title:
+                                return binary, title
+            except Exception as e:
+                gnome_failure_count += 1
+                log.error(f"Window Calls extension query failed: {e}")
+
+    except Exception as e:
+        # If checking name_has_owner fails, DBus is likely unstable.
+        gnome_failure_count += 1
+        log.error(f"DBus error checking extension: {e}")
+        return None, None
+
+    # 4. Fallback to the legacy method
+    # This function manages its own failure incrementing
     title = get_active_window_gnome_wayland_title()
     return None, title
 
@@ -697,7 +753,7 @@ def get_active_window_title():
                 return binary, title
     
     except Exception as e:
-        # Catch ANY error during detection so the driver never dies
+        # Catch ANY error during detection so the driver doesn't die on this hill
         log.debug(f"Window detection error: {e}")
     
     # If we reached here, we couldn't find the window.
@@ -891,6 +947,7 @@ gsettings_max_failure_count = 1
 qdbus_failure_count = 0
 qdbus_max_failure_count = 1
 
+gnome_session_bus = None
 gnome_failure_count = 0
 gnome_max_failure_count = 1
 
