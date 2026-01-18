@@ -723,7 +723,7 @@ def get_active_window_info_gnome_wayland():
                         if window.get("focus") is True:
                             binary = window.get("wm_class", "").lower()
                             title = window.get("title", "").lower()
-                            
+                            log.debug(f"GNOME Window Calls extension found focused window: binary={binary}, title={title}")
                             if binary or title:
                                 return binary, title
             except Exception as e:
@@ -1475,8 +1475,6 @@ def gsettingsGet(path, name):
 
     try:
         cmd = run_command_as_user(['gsettings', 'get', path, name])
-
-        # REMOVED text=True. Now stdout and stderr are strictly BYTES.
         proc = subprocess.run(cmd, capture_output=True)
 
         if proc.returncode != 0:
