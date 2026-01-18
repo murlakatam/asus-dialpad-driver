@@ -1277,6 +1277,8 @@ def listen_touchpad_events():
                     distance = math.sqrt(dx**2 + dy**2)
                     angle = (math.atan2(dy, dx) * 180 / math.pi + 90) % 360
 
+                    log.debug(f"CALIBRATION: x={touch_x}, y={touch_y}, dist={distance:.1f}, target_radius={circle_radius}, target_center=({circle_center_x},{circle_center_y})")
+
                     if distance <= circle_radius and dialpad:
 
                         # Disable tap-to-click
