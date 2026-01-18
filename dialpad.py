@@ -1284,7 +1284,7 @@ def listen_touchpad_events():
                             set_touchpad_prop_send_events(0)
                             tap_disabled = True
 
-                        #log.info("Distance: %f, Center button radius: %f", distance, center_button_radius)
+                        log.debug("Distance: %f, Center button radius: %f", distance, center_button_radius)
                         if distance < center_button_radius and dialpad:  # Center button area
                             # Only trigger if it has not been triggered already in this touch cycle
                             if not center_button_triggered:
@@ -1306,9 +1306,11 @@ def listen_touchpad_events():
 
                             if multi_app_mode and not center_activated:
                                 slices_count_local = multi_app_mode_grid
+                                log.debug("Multi-app mode active: using grid slices count %d", slices_count_local)
                             else:
                                 # from the config
                                 slices_count_local = slices_count
+                                log.debug("Using configured slices count %d", slices_count_local)
                                 pass
 
                             # Determine the current slice based on the angle
@@ -1388,8 +1390,8 @@ def listen_touchpad_events():
             pass
 
         listen_touchpad_events()
-    except Exception:
-        log.exception("Error in listen_touchpad_events")
+    except Exception as e:
+        log.exception(f"Error in listen_touchpad_events: {e}")
 
 def check_config_values_changes():
     global config_lock, stop_threads, event_notifier
